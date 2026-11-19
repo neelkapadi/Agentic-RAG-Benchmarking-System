@@ -1,0 +1,55 @@
+# Agentic RAG Benchmarking System - default configuration.
+# Relative paths are resolved from the project root.
+
+data:
+  docs_dir: data/raw/fastapi_docs        # FastAPI English docs (markdown)
+  src_root: data/raw                     # folder that contains docs_src/ (code examples)
+  chunks_path: data/processed/chunks.jsonl
+  # Pages with little Q&A value (changelogs, people lists, API autodoc stubs).
+  exclude:
+    - release-notes.md
+    - fastapi-people.md
+    - external-links.md
+    - contributing.md
+    - management.md
+    - management-tasks.md
+    - translations.md
+    - newsletter.md
+    - agent-banner.md
+    - translation-banner.md
+    - _llm-test.md
+    - help-fastapi.md
+    - reference/
+
+chunking:
+  max_chars: 1800        # ~450 tokens
+  overlap_chars: 300     # last block is repeated in the next chunk if it is this short
+  min_chars: 120         # drop tiny fragments
+
+embeddings:
+  model: BAAI/bge-small-en-v1.5
+  query_prefix: "Represent this sentence for searching relevant passages: "
+  index_dir: data/processed/vector_index
+  batch_size: 32
+
+llm:
+  base_url: http://localhost:11434       # Ollama
+  model: qwen2.5:3b                      # fits a 4 GB GPU; try qwen2.5:7b / llama3.1:8b on bigger GPUs
+  judge_model: qwen2.5:3b                # ideally a larger model than the generator
+  temperature: 0.0
+  num_ctx: 8192
+  timeout_s: 300
+
+retrieval:
+  top_k: 5
+  bm25: {k1: 1.5, b: 0.75}
+  hybrid: {rrf_k: 60, candidates: 20}
+
+agent:
+  max_attempts: 3        # retrieve -> grade cycles before giving up and fusing results
+
+eval:
+  qa_path: data/eval/qa_gold.jsonl
+  results_dir: results
+  pipelines: [bm25, vector, hybrid, agentic]
+  judge: true
