@@ -71,60 +71,87 @@ def test_metrics():
 
 
 @pytest.mark.parametrize("q,expected", [
-    ("What does `response_model` do?", "bm25"),
-    ("How do I return a 404 error?", "bm25"),
-    ("Why should I use async functions?", "vector"),
-    ("background tasks after sending a response", "hybrid"),
+    ("What does `response_model` do?", "keyword"),
+    ("How do I return a 404 error?", "keyword"),
+    ("Why should I use async functions?", "semantic"),
+    ("background tasks after sending a response", "balanced"),
 ])
 def test_heuristic_router(q, expected):
     assert heuristic_route(q) == expected
 
 
+def test_consensus():
+    from src.agent.graph import has_consensus
+    assert has_consensus(["a", "b"], ["a", "c"])
+    assert has_consensus(["a", "b", "c"], ["b", "a", "d"])      # each top-1 in the other's top-3
+    assert not has_consensus(["a", "b"], ["c", "d"])
+    assert not has_consensus([], ["a"])
+
+
 # ---------- agent (fake LLM + fake retrievers) ----------
 
 class FakeRetriever(BaseRetriever):
-    def __init__(self, name):
-        self.name = name
+    """Returns <prefix>.md::000.. so BM25 and vector disagree unless they share a prefix."""
+    def __init__(self, prefix):
+        self.prefix = prefix
 
     def search(self, query, k=5):
-        return [rc(f"{self.name}.md::{i:03d}") for i in range(k)]
+        return [rc(f"{self.prefix}.md::{i:03d}") for i in range(k)]
 
 
 class FakeLLM:
-    """Router always says bm25; grader rejects the first attempt and accepts the second."""
-    def __init__(self):
-        self.grades = 0
+    """Router says keyword; grader rejects the first attempt and accepts the second."""
+    def __init__(self, accept_on: int = 2):
+        self.grades, self.accept_on = 0, accept_on
 
     def chat_json(self, messages):
         system = messages[0]["content"]
-        if "route questions" in system:
-            return {"strategy": "bm25", "reason": "has identifier"}, LLMResponse("", 10, 5, 0.01)
-        if "whether retrieved passages" in system:
+        if "how to weight keyword search" in system:
+            return {"strategy": "keyword", "reason": "has identifier"}, LLMResponse("", 10, 5, 0.01)
+        if "are RELEVANT to a question" in system:
             self.grades += 1
-            return {"sufficient": self.grades >= 2, "reason": "missing details"}, LLMResponse("", 10, 5, 0.01)
-        return {"query": "rewritten query"}, LLMResponse("", 10, 5, 0.01)
+            return {"relevant": self.grades >= self.accept_on, "reason": "x"}, LLMResponse("", 10, 5, 0.01)
+        return {"passage": "hypothetical answer", "keywords": ["k1", "k2"]}, LLMResponse("", 10, 5, 0.01)
 
 
-def test_agent_retries_then_accepts():
-    retrievers = {n: FakeRetriever(n) for n in ("bm25", "vector", "hybrid")}
-    agent = AgenticRetriever(FakeLLM(), retrievers, top_k=3, max_attempts=3)
+def disagreeing():
+    return {"bm25": FakeRetriever("b"), "vector": FakeRetriever("v"), "hybrid": FakeRetriever("h")}
+
+
+def test_agent_expands_then_accepts():
+    agent = AgenticRetriever(FakeLLM(), disagreeing(), top_k=3, max_attempts=2)
     docs, info = agent.search_with_trace("What does response_model do?")
     steps = [t["step"] for t in info["trace"]]
-    assert steps == ["route", "retrieve", "grade", "rewrite", "route", "retrieve", "grade", "finalize"]
+    assert steps == ["route", "retrieve", "grade", "expand", "retrieve", "grade", "finalize"]
     assert info["attempts"] == 2 and info["sufficient"] is True
-    assert info["llm_calls"] == 5 and len(docs) == 3
+    assert info["llm_calls"] == 4 and len(docs) == 3
+    assert info["strategies"] == ["keyword", "balanced"]             # retry uses a different weighting
+    expanded = [t for t in info["trace"] if t["step"] == "retrieve"][1]["query"]
+    assert "hypothetical answer" in expanded and "k1" in expanded     # HyDE + keywords in the query
 
 
-def test_agent_fuses_when_never_sufficient():
-    class NeverLLM(FakeLLM):
-        def chat_json(self, messages):
-            data, r = super().chat_json(messages)
-            if "sufficient" in data:
-                data["sufficient"] = False
-            return data, r
-
-    agent = AgenticRetriever(NeverLLM(), {n: FakeRetriever(n) for n in ("bm25", "vector", "hybrid")},
-                             top_k=3, max_attempts=2)
+def test_agent_consensus_skips_llm_grade():
+    same = {"bm25": FakeRetriever("x"), "vector": FakeRetriever("x"), "hybrid": FakeRetriever("x")}
+    agent = AgenticRetriever(FakeLLM(), same, top_k=3, max_attempts=2)
     docs, info = agent.search_with_trace("q")
-    assert info["attempts"] == 2 and info["trace"][-1]["mode"] == "fused_all_attempts"
-    assert len(docs) == 3
+    grade = [t for t in info["trace"] if t["step"] == "grade"]
+    assert len(grade) == 1 and grade[0]["by"] == "consensus" and info["llm_calls"] == 1  # router only
+
+
+def test_agent_fallback_keeps_first_attempt_on_top():
+    agent = AgenticRetriever(FakeLLM(accept_on=99), disagreeing(), top_k=3, max_attempts=2)
+    docs, info = agent.search_with_trace("q")
+    assert info["attempts"] == 2 and info["trace"][-1]["mode"] == "fused_first_weighted"
+    first = [t for t in info["trace"] if t["step"] == "retrieve"][0]["chunk_ids"]
+    assert docs[0].chunk_id == first[0]
+
+
+def test_agent_unparseable_grade_is_accepted():
+    class Garbage(FakeLLM):
+        def chat_json(self, messages):
+            if "are RELEVANT" in messages[0]["content"]:
+                return {}, LLMResponse("", 1, 1, 0.01)
+            return super().chat_json(messages)
+
+    docs, info = AgenticRetriever(Garbage(), disagreeing(), top_k=3).search_with_trace("q")
+    assert info["attempts"] == 1 and info["sufficient"] is True

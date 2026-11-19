@@ -89,7 +89,9 @@ def build_retrievers(cfg: dict, names: list[str], llm: OllamaClient | None = Non
         out["agentic"] = AgenticRetriever(
             llm or make_llm(cfg), {k: out[k] for k in ("bm25", "vector", "hybrid")},
             top_k=r_cfg["top_k"], max_attempts=cfg["agent"]["max_attempts"],
-            rrf_k=r_cfg.get("hybrid", {}).get("rrf_k", 60), domain=domain_of(cfg))
+            rrf_k=r_cfg.get("hybrid", {}).get("rrf_k", 60), domain=domain_of(cfg),
+            candidates=r_cfg.get("hybrid", {}).get("candidates", 20),
+            use_consensus=cfg["agent"].get("consensus", True))
     return {n: out[n] for n in names}
 
 

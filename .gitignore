@@ -13,7 +13,9 @@ results/*
 results/fastapi/*
 !results/fastapi/demo_12q/
 !results/fastapi/compare_qwen_judge/
+!results/fastapi/agent_v2_12q/
 .env
 .DS_Store
 .claude/
 site/
+docs/*.docx

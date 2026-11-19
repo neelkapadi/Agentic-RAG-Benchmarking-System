@@ -207,9 +207,10 @@ Full report: [`results/fastapi/demo_12q/report.md`](results/fastapi/demo_12q/rep
 | BM25 | 0.917 | 0.854 | 0.869 | **0.963** | 0.917 | 0.854 | 9.7 s | 1 |
 | Vector | 0.833 | 0.750 | 0.772 | 0.955 | 0.958 | 0.875 | 8.6 s | 1 |
 | Hybrid (RRF) | **1.000** | **0.892** | **0.918** | 0.948 | 0.917 | 0.854 | **7.7 s** | 1 |
-| Agentic (LangGraph) | 0.917 | 0.736 | 0.783 | 0.959 | **0.979** | **0.938** | 34.2 s | 7.5 |
+| Agentic v1 (LangGraph) | 0.917 | 0.736 | 0.783 | 0.959 | **0.979** | **0.938** | 34.2 s | 7.5 |
+| Agentic v2 (LangGraph) | 0.833 | 0.736 | 0.761 | 0.932 | 0.875 | 0.812 | 14.9 s | 2.7 |
 
-**What the pilot shows**
+**What the pilot shows (agent v1)**
 
 - **Hybrid retrieval is the strongest retriever:** it found the gold chunk for every question and
   had the best ranking (MRR 0.892). BM25 missed paraphrased questions and vector search missed
@@ -222,6 +223,42 @@ Full report: [`results/fastapi/demo_12q/report.md`](results/fastapi/demo_12q/rep
   through 2–3 retrieve→rewrite cycles. Tuning the grader is the main lever for cutting latency.
 - **Limitation:** 12 questions is a small sample, so differences of one question (8.3 points)
   are within noise. The next step is the full 100-question run.
+
+### Diagnosing and fixing the agent (v1 → v2)
+
+Reading the v1 traces question by question showed that the agent was wasting work rather than
+making retrieval worse:
+
+- **The grader was the main problem.** The first retrieval already contained the gold chunk for 11
+  of 12 questions, yet the grader rejected **9 of those 11** (*"passages do not directly contain a
+  complete solution"*). Each false rejection cost two more rounds.
+- **Rewrites were near-paraphrases**, so retries found the same chunks again.
+- **The router often chose plain vector search** and missed exact-identifier questions.
+- **Fusing all failed attempts** pushed good first results down the ranking.
+
+v2 changes ([`src/agent/graph.py`](src/agent/graph.py)):
+
+1. **Consensus grading:** if BM25 and vector search independently agree on the top chunk, the
+   result is accepted without an LLM call. Otherwise the LLM checks *relevance* (partial answers
+   count) on full passages.
+2. **Routing as weighting:** every strategy is a weighted hybrid (keyword 2:1, semantic 1:2,
+   balanced 1:1), so a single weak retriever is never used on its own.
+3. **HyDE retry:** instead of paraphrasing, the agent drafts a hypothetical answer passage plus
+   keywords and searches with those.
+4. **Safer fallback:** if nothing is accepted, the attempts are fused with the first attempt weighted ×2.
+
+| Agent | p50 latency | LLM calls | False rejections | Accepted first try | Hit@5 | Correctness |
+|---|---|---|---|---|---|---|
+| v1 | 34.2 s | 7.5 | 9 | 25% | 0.917 | 0.938 |
+| v2 | **14.9 s (−57%)** | **2.7** | **2** | **92%** (8 of them by consensus) | 0.833 | 0.812 |
+
+**Result:** the efficiency gains are large and clear. Quality moved by about one question
+(each question is 8.3 points here), which is within noise. The two remaining misses suggest the next
+fixes: (1) after a retry, always merge the first attempt back in (q002: a correct first result was
+lost), and (2) the 3B router still ignores the "balanced by default" instruction (it chose
+"semantic" for 10 of 12), so a rule-based router may be better. Overall, **on a well-indexed
+documentation corpus, plain hybrid search is the strongest and cheapest pipeline**. An agent pays off
+with stronger models or harder, multi-step questions.
 
 **Judge bias check.** The same answers were also scored with `qwen2.5:3b`, the generator itself, as the judge
 ([`results/fastapi/compare_qwen_judge/`](results/fastapi/compare_qwen_judge/)). Qwen rated its own answers

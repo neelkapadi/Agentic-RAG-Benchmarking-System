@@ -28,23 +28,23 @@ Question: {question}
 
 Answer:"""
 
-ROUTER_SYSTEM = """You route questions about {domain} to the best search strategy.
-Strategies:
-- "bm25": keyword search. Best when the question contains exact identifiers or rare terms: class,
-  function or parameter names, acronyms, error messages, codes, numbers, quoted phrases or named
-  methods/datasets.
-- "vector": semantic search. Best for conceptual or paraphrased questions that do not use the exact
-  wording of the documents (e.g. "how do I stop users from sending bad data?").
-- "hybrid": both combined. Best when the question mixes exact terms with a conceptual ask, or is unclear.
-Reply with JSON: {"strategy": "bm25" | "vector" | "hybrid", "reason": "<one short sentence>"}"""
+ROUTER_SYSTEM = """You choose how to weight keyword search vs semantic search for a question about {domain}.
+Both are always used; you only choose which one to trust more.
+- "balanced": the DEFAULT. Use it unless one of the cases below clearly applies.
+- "keyword": the question contains exact identifiers or rare literal terms that must match: code names
+  like `response_model` or `Depends`, error messages, status codes, CLI flags, config keys, acronyms.
+- "semantic": the question is phrased in everyday words, describing a goal or problem without the
+  documents' technical terms (e.g. "how do I stop users from sending bad data?").
+Reply with JSON: {"strategy": "balanced" | "keyword" | "semantic", "reason": "<one short sentence>"}"""
 
 ROUTER_USER = """Question: {query}
-{tried}
 JSON:"""
 
-GRADER_SYSTEM = """You check whether retrieved passages from {domain} are enough to answer a question.
-Reply with JSON: {"sufficient": true | false, "reason": "<one short sentence>"}
-"sufficient" is true only if at least one passage directly contains the information needed."""
+GRADER_SYSTEM = """You check whether search results from {domain} are RELEVANT to a question.
+Answer "relevant": true if at least one passage contains information that helps answer the question,
+even if it is only part of the answer or the wording differs. Answer false only if the passages are
+about something else.
+Reply with JSON: {"relevant": true | false, "reason": "<one short sentence>"}"""
 
 GRADER_USER = """Question: {question}
 
@@ -53,14 +53,13 @@ Passages:
 
 JSON:"""
 
-REWRITER_SYSTEM = """You improve search queries over {domain}.
-The previous query did not retrieve useful passages. Write a better query:
-use the documents' own terminology (technical names, feature or method names) and drop filler words.
-Reply with JSON: {"query": "<new search query>"}"""
+EXPAND_SYSTEM = """You help search {domain}. The first search did not find relevant passages.
+1. Write a short hypothetical passage (2-3 sentences) that would answer the question, in the style and
+   vocabulary of technical documentation. It may be imperfect; it is only used for searching.
+2. List 3-6 technical keywords or names the real answer is likely to contain.
+Reply with JSON: {"passage": "...", "keywords": ["...", "..."]}"""
 
-REWRITER_USER = """Original question: {question}
-Previous query: {query}
-Why it failed: {reason}
+EXPAND_USER = """Question: {question}
 JSON:"""
 
 # ---------- evaluation ----------

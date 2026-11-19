@@ -18,6 +18,12 @@ from src.evaluation.runner import summarize
 
 REPO_URL = "https://github.com/neelkapadi/Agentic-RAG-Benchmarking-System"
 CONTEXT_CHARS = 700
+# Published runs, in display order (first = default view).
+RUN_LABELS = {
+    "agent_v2_12q": "Agent v2 (current): consensus grading + HyDE",
+    "demo_12q": "Agent v1: original agent",
+    "compare_qwen_judge": "Agent v1, judged by qwen2.5 (bias check)",
+}
 
 
 def _clean(v):
@@ -44,7 +50,8 @@ def export_run(run_dir: Path, k: int) -> dict:
             "avg_attempts": sum(r["agent"].get("attempts") or 0 for r in agent_recs) / len(agent_recs),
             "accepted": sum(1 for r in agent_recs if r["agent"].get("sufficient")),
             "n": len(agent_recs),
-            "routing": {t: {s: routing.get((t, s), 0) for s in ORDER[:3]} for t in sorted({t for t, _ in routing})},
+            "routing": {t: {s: routing.get((t, s), 0) for s in sorted({s for _, s in routing})}
+                        for t in sorted({t for t, _ in routing})},
         }
 
     questions: dict[str, dict] = {}
@@ -99,9 +106,14 @@ def main() -> None:
     args = ap.parse_args()
     k = load_config()["retrieval"]["top_k"]
 
-    run_dirs = sorted((ROOT / "results" / args.corpus).glob("*/records.jsonl"))
-    # Main run first, comparison runs after.
-    runs = [export_run(p.parent, k) for p in sorted(run_dirs, key=lambda p: p.parent.name.startswith("compare"))]
+    run_dirs = [p.parent for p in (ROOT / "results" / args.corpus).glob("*/records.jsonl")]
+    order = {name: i for i, name in enumerate(RUN_LABELS)}
+    run_dirs.sort(key=lambda d: (order.get(d.name, len(order)), d.name))
+    runs = []
+    for d in run_dirs:
+        run = export_run(d, k)
+        run["label"] = RUN_LABELS.get(d.name, d.name)
+        runs.append(run)
     if not runs:
         raise SystemExit(f"No runs in results/{args.corpus}/")
 

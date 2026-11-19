@@ -84,11 +84,17 @@ def agent_section(records: list[dict], k: int) -> list[str]:
                  f"({accepted / len(recs) * 100:.0f}%); the rest fell back to fusing all attempts")
     by_type = Counter((r.get("type", "?"), (r["agent"].get("strategies") or ["?"])[0]) for r in recs)
     types = sorted({t for t, _ in by_type})
+    strategies = sorted({s for _, s in by_type})
     if types:
-        lines += ["", "Routing by question type:", "",
-                  "| type | " + " | ".join(ORDER[:3]) + " |", "|---|---|---|---|"]
+        lines += ["", "Routing by question type (first strategy chosen):", "",
+                  "| type | " + " | ".join(strategies) + " |", "|---" * (len(strategies) + 1) + "|"]
         for t in types:
-            lines.append(f"| {t} | " + " | ".join(str(by_type.get((t, s), 0)) for s in ORDER[:3]) + " |")
+            lines.append(f"| {t} | " + " | ".join(str(by_type.get((t, s), 0)) for s in strategies) + " |")
+    graded = [t for r in recs for t in r["agent"]["trace"] if t.get("step") == "grade"]
+    if any("by" in t for t in graded):
+        by = Counter(t.get("by", "llm") for t in graded)
+        lines.append("")
+        lines.append("- Grading decisions: " + ", ".join(f"{k} {v}" for k, v in by.most_common()))
     misses = [r for r in recs if not r.get(f"hit@{k}")][:5]
     if misses:
         lines += ["", f"Questions where the agent missed the gold chunk (up to 5):", ""]

@@ -244,8 +244,8 @@ function renderOverview() {
     <p>Average retrieve → grade attempts: <b>${fmt(a.avg_attempts, 2)}</b><br>
        Context accepted by the grader: <b>${a.accepted}/${a.n}</b> (${Math.round(100 * a.accepted / a.n)}%);
        the rest fell back to fusing all attempts.</p>
-    <div class="table-wrap"><table><thead><tr><th>question type</th>${PIPES.slice(0, 3).map(p => `<th>${esc(p)}</th>`).join("")}</tr></thead><tbody>
-      ${types2.map(t => `<tr><td>${esc(t)}</td>${PIPES.slice(0, 3).map(p => `<td>${a.routing[t][p]}</td>`).join("")}</tr>`).join("")}
+    <div class="table-wrap"><table><thead><tr><th>question type</th>${Object.keys(a.routing[types2[0]] || {}).map(p => `<th>${esc(p)}</th>`).join("")}</tr></thead><tbody>
+      ${types2.map(t => `<tr><td>${esc(t)}</td>${Object.keys(a.routing[t]).map(p => `<td>${a.routing[t][p]}</td>`).join("")}</tr>`).join("")}
     </tbody></table></div>
     <p class="small muted">Routing table: which strategy the router picked first, per question type.</p>`;
 }
@@ -305,7 +305,7 @@ function renderAll() { renderOverview(); renderQuestions(); renderJudges(); }
 document.getElementById("repo-link").href = DATA.repo;
 document.getElementById("repo-link-2").href = DATA.repo + "#readme";
 const runSel = document.getElementById("run-select");
-runSel.innerHTML = DATA.runs.map((r, i) => `<option value="${i}">${esc(r.name)} (judge: ${esc(r.meta.judge_model || "?")})</option>`).join("");
+runSel.innerHTML = DATA.runs.map((r, i) => `<option value="${i}">${esc(r.label || r.name)}</option>`).join("");
 runSel.addEventListener("change", () => { run = DATA.runs[+runSel.value]; renderAll(); });
 document.getElementById("q-select").addEventListener("change", renderQuestion);
 document.getElementById("only-miss").addEventListener("change", renderQuestions);

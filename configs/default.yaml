@@ -51,7 +51,8 @@ retrieval:
   hybrid: {rrf_k: 60, candidates: 20}
 
 agent:
-  max_attempts: 3        # retrieve -> grade cycles before giving up and fusing results
+  max_attempts: 2        # retrieve -> grade cycles (1 = no retry); v2 retries once with HyDE expansion
+  consensus: true        # accept without an LLM call when BM25 and vector agree on the top chunk
 
 eval:
   qa_path: data/eval/qa_gold.jsonl
