@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agentic RAG Benchmark</title>
+<meta name="description" content="BM25 vs vector vs hybrid vs agentic (LangGraph) RAG on the FastAPI documentation, with open-source models.">
+<script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+<style>
+:root {
+  --bg: #f7f7f5; --panel: #ffffff; --ink: #1d1d1f; --muted: #6b6b70; --line: #e4e4e0;
+  --accent: #3b5bdb; --good: #2b8a3e; --good-bg: #ebfbee; --bad: #c92a2a; --bad-bg: #fff5f5;
+  --code: #f1f1ee;
+  --p-bm25: #4c6ef5; --p-vector: #12b886; --p-hybrid: #f59f00; --p-agentic: #e64980;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111214; --panel: #1a1b1e; --ink: #e9e9ec; --muted: #9a9aa2; --line: #2c2d31;
+    --accent: #748ffc; --good: #69db7c; --good-bg: #13291a; --bad: #ff8787; --bad-bg: #2c1515;
+    --code: #24252a;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+.wrap { max-width: 1180px; margin: 0 auto; padding: 28px 16px 64px; }
+header h1 { font-size: 28px; margin: 0 0 6px; letter-spacing: -0.02em; }
+header p { margin: 0; color: var(--muted); }
+header .links { margin-top: 10px; display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+a { color: var(--accent); }
+select { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 8px;
+  padding: 6px 10px; font: inherit; max-width: 100%; }
+nav.tabs { display: flex; gap: 4px; margin: 22px 0 18px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+nav.tabs button { background: none; border: 0; color: var(--muted); font: inherit; font-weight: 600;
+  padding: 10px 14px; cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; }
+nav.tabs button.active { color: var(--ink); border-bottom-color: var(--accent); }
+section.view { display: none; } section.view.active { display: block; }
+.grid { display: grid; gap: 14px; }
+.kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 860px) { .kpis, .two, .four { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 560px) { .kpis, .two, .four { grid-template-columns: 1fr; } }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; min-width: 0; }
+.kpi .label { color: var(--muted); font-size: 13px; }
+.kpi .value { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; }
+.pill { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 99px;
+  color: #fff; }
+h2 { font-size: 18px; margin: 26px 0 10px; }
+h3 { font-size: 15px; margin: 0 0 8px; }
+ul.findings { margin: 0; padding-left: 18px; } ul.findings li { margin: 4px 0; }
+code { background: var(--code); padding: 1px 5px; border-radius: 4px; font-size: 13px; }
+pre { background: var(--code); padding: 10px; border-radius: 8px; overflow-x: auto; font-size: 12.5px; }
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--muted); font-weight: 600; font-size: 12.5px; }
+td.best { font-weight: 700; color: var(--good); }
+.chart { width: 100%; height: 340px; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.badge { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 6px; }
+.badge.ok { color: var(--good); background: var(--good-bg); }
+.badge.miss { color: var(--bad); background: var(--bad-bg); }
+.answer { font-size: 14px; overflow-wrap: anywhere; }
+.answer p { margin: 6px 0; }
+details { margin-top: 8px; } summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+.ctx { border-left: 3px solid var(--line); padding: 4px 8px; margin: 6px 0; font-size: 12.5px; }
+.ctx.gold { border-left-color: var(--good); }
+.ctx .id { font-family: ui-monospace, Consolas, monospace; font-size: 12px; overflow-wrap: anywhere; }
+.trace { font-family: ui-monospace, Consolas, monospace; font-size: 12px; margin: 4px 0; overflow-wrap: anywhere; }
+.controls { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
+.qhead { margin-bottom: 14px; }
+footer { margin-top: 40px; color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Agentic RAG Benchmark</h1>
+    <p id="subtitle"></p>
+    <div class="links">
+      <a id="repo-link" href="#">Source code on GitHub</a>
+      <label class="small muted">Run <select id="run-select"></select></label>
+    </div>
+  </header>
+
+  <nav class="tabs">
+    <button data-view="overview" class="active">📊 Overview</button>
+    <button data-view="questions">🔍 Question explorer</button>
+    <button data-view="judges">⚖️ Judge comparison</button>
+    <button data-view="method">📘 Method</button>
+  </nav>
+
+  <section id="overview" class="view active">
+    <div class="grid kpis" id="kpis"></div>
+    <h2>Key findings</h2>
+    <div class="card"><ul class="findings" id="findings"></ul></div>
+    <h2>Quality (higher is better)</h2>
+    <div class="card table-wrap" id="quality-table"></div>
+    <div class="grid two" style="margin-top:14px">
+      <div class="card"><h3>Quality metrics by pipeline</h3><div class="chart" id="chart-quality"></div></div>
+      <div class="card"><h3>Median latency per question (s)</h3><div class="chart" id="chart-latency"></div></div>
+      <div class="card"><h3 id="bytype-title">Hit@k by question type</h3><div class="chart" id="chart-bytype"></div></div>
+      <div class="card" id="agent-card"><h3>Agent behaviour</h3><div id="agent"></div></div>
+    </div>
+    <h2>Latency and cost (lower is better)</h2>
+    <div class="card table-wrap" id="cost-table"></div>
+  </section>
+
+  <section id="questions" class="view">
+    <div class="controls">
+      <select id="q-select" style="flex:1; min-width: 0"></select>
+      <label class="small"><input type="checkbox" id="only-miss"> only questions where a pipeline missed</label>
+    </div>
+    <div class="qhead card" id="q-head"></div>
+    <div class="grid four" id="q-results" style="margin-top:14px"></div>
+  </section>
+
+  <section id="judges" class="view">
+    <p class="muted">The same generated answers scored by two different judge models. Large disagreements show how much
+      LLM-as-a-judge scores depend on the judge.</p>
+    <div class="card table-wrap" id="judge-table"></div>
+  </section>
+
+  <section id="method" class="view">
+    <div class="card">
+      <h3>What is compared</h3>
+      <ul>
+        <li><b>BM25</b>: keyword search (rank_bm25, identifier-aware tokenizer).</li>
+        <li><b>Vector</b>: <code>BAAI/bge-small-en-v1.5</code> embeddings + FAISS cosine search.</li>
+        <li><b>Hybrid</b>: Reciprocal Rank Fusion of BM25 and vector rankings.</li>
+        <li><b>Agentic</b>: a LangGraph state machine: <i>route</i> (pick bm25/vector/hybrid) →
+          <i>retrieve</i> → <i>grade</i> (is the context sufficient?) → <i>rewrite</i> the query and retry,
+          or <i>finalize</i> (fuse all attempts if none passed).</li>
+      </ul>
+      <p>Every pipeline uses the same chunks, top-k and answer prompt, so only retrieval differs.</p>
+      <h3>Metrics</h3>
+      <ul>
+        <li><b>Hit@k, MRR, nDCG@k</b>: was the gold chunk (the passage each question was written from) retrieved, and how high.</li>
+        <li><b>Faithfulness</b>: share of the answer's claims supported by the retrieved context (LLM judge).</li>
+        <li><b>Relevance / correctness</b>: LLM-judge 1–5 scores rescaled to 0–1; correctness compares with a reference answer.</li>
+        <li><b>Latency / cost</b>: wall-clock seconds and LLM calls per question.</li>
+      </ul>
+      <h3>Setup</h3>
+      <p id="setup"></p>
+      <p class="muted small">Questions are LLM-generated from the docs (half keyword-style, half paraphrased) and should be
+        treated as a pilot: with a small question set, a difference of one question is several points.</p>
+    </div>
+  </section>
+
+  <footer>Static report generated from the benchmark's <code>records.jsonl</code> files. Run the full system
+    (live questions, your own documents) locally: see the <a id="repo-link-2" href="#">README</a>.</footer>
+</div>
+
+<script>
+const DATA = /*__DATA__*/null;
+const PIPES = ["bm25", "vector", "hybrid", "agentic"];
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const COLORS = Object.fromEntries(PIPES.map(p => [p, css(`--p-${p}`)]));
+const K = DATA.k;
+const fmt = (v, d = 3) => (v === null || v === undefined || Number.isNaN(v)) ? "–" : Number(v).toFixed(d);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const inlineMd = s => esc(s).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/`(.+?)`/g, "<code>$1</code>");
+const md = s => DOMPurify.sanitize(marked.parse(String(s || "")));
+const pill = p => `<span class="pill" style="background:${COLORS[p] || "#888"}">${esc(p)}</span>`;
+
+let run = DATA.runs[0];
+
+function layout(extra = {}) {
+  return Object.assign({
+    paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)",
+    font: { color: css("--ink"), size: 12 }, margin: { l: 44, r: 10, t: 10, b: 60 },
+    legend: { orientation: "h", y: -0.25 },
+    xaxis: { gridcolor: css("--line") }, yaxis: { gridcolor: css("--line"), zerolinecolor: css("--line") },
+  }, extra);
+}
+const plotCfg = { displayModeBar: false, responsive: true };
+
+function table(rows, cols, { digits = 3, bestMax = [], bestMin = [] } = {}) {
+  const best = {};
+  for (const c of bestMax) best[c] = Math.max(...rows.map(r => r[c] ?? -Infinity));
+  for (const c of bestMin) best[c] = Math.min(...rows.map(r => r[c] ?? Infinity));
+  let h = "<table><thead><tr><th>pipeline</th>" + cols.map(c => `<th>${esc(c[1])}</th>`).join("") + "</tr></thead><tbody>";
+  for (const r of rows) {
+    h += `<tr><td>${pill(r.pipeline)}</td>` + cols.map(([c]) =>
+      `<td class="${c in best && r[c] === best[c] ? "best" : ""}">${fmt(r[c], digits)}</td>`).join("") + "</tr>";
+  }
+  return h + "</tbody></table>";
+}
+
+function renderOverview() {
+  const s = run.summary, pipes = PIPES.filter(p => s[p]);
+  const meta = run.meta || {};
+  document.getElementById("subtitle").innerHTML =
+    `${esc(meta.domain || "FastAPI documentation")} · ${s[pipes[0]].n} questions per pipeline · top-k = ${K} · ` +
+    `generator <code>${esc(meta.model || "?")}</code> · judge <code>${esc(meta.judge_model || "?")}</code>`;
+  document.getElementById("setup").innerHTML =
+    `Generator <code>${esc(meta.model)}</code>, judge <code>${esc(meta.judge_model)}</code>, embeddings ` +
+    `<code>${esc(meta.embedding_model)}</code>. All models are open-source, served locally by Ollama on a 4 GB GPU.`;
+
+  const kpi = (metric, label) => {
+    const best = pipes.reduce((a, p) => (s[p][metric] ?? -1) > (s[a][metric] ?? -1) ? p : a, pipes[0]);
+    return `<div class="card kpi"><div class="label">${label}</div><div class="value">${fmt(s[best][metric])}</div>${pill(best)}</div>`;
+  };
+  document.getElementById("kpis").innerHTML =
+    kpi(`hit@${K}`, `Best Hit@${K}`) + kpi("mrr", "Best MRR") + kpi("correctness", "Best correctness") + kpi("faithfulness", "Best faithfulness");
+  document.getElementById("findings").innerHTML = run.findings.map(f => `<li>${inlineMd(f)}</li>`).join("");
+
+  const rows = pipes.map(p => ({ pipeline: p, ...s[p] }));
+  const qcols = [[`hit@${K}`, `Hit@${K}`], ["mrr", "MRR"], [`ndcg@${K}`, `nDCG@${K}`], [`doc_hit@${K}`, `Doc-Hit@${K}`],
+                 ["faithfulness", "Faithfulness"], ["answer_relevance", "Relevance"], ["correctness", "Correctness"]];
+  document.getElementById("quality-table").innerHTML = table(rows, qcols, { bestMax: qcols.map(c => c[0]) });
+  const ccols = [["total_s_p50", "p50 total (s)"], ["total_s_p95", "p95 total (s)"], ["retrieval_s_p50", "p50 retrieval (s)"],
+                 ["llm_calls_mean", "LLM calls"], ["prompt_mean", "prompt tokens"], ["completion_mean", "completion tokens"]];
+  document.getElementById("cost-table").innerHTML = table(rows, ccols, { digits: 2, bestMin: ccols.map(c => c[0]) });
+
+  const metrics = [[`hit@${K}`, `Hit@${K}`], ["mrr", "MRR"], ["faithfulness", "Faithful."], ["answer_relevance", "Relevance"], ["correctness", "Correct."]];
+  Plotly.react("chart-quality", pipes.map(p => ({
+    type: "bar", name: p, marker: { color: COLORS[p] },
+    x: metrics.map(m => m[1]), y: metrics.map(m => s[p][m[0]]),
+  })), layout({ barmode: "group", yaxis: { range: [0, 1.05], gridcolor: css("--line") } }), plotCfg);
+  Plotly.react("chart-latency", [{
+    type: "bar", x: pipes, y: pipes.map(p => s[p].total_s_p50), marker: { color: pipes.map(p => COLORS[p]) },
+    text: pipes.map(p => fmt(s[p].total_s_p50, 1) + " s"), textposition: "outside",
+  }], layout({ showlegend: false, yaxis: { range: [0, 1.18 * Math.max(...pipes.map(p => s[p].total_s_p50 || 0))],
+                                             gridcolor: css("--line") } }), plotCfg);
+
+  document.getElementById("bytype-title").textContent = `Hit@${K} by question type`;
+  const types = Object.keys(run.by_type || {});
+  Plotly.react("chart-bytype", pipes.map(p => ({
+    type: "bar", name: p, marker: { color: COLORS[p] }, x: types, y: types.map(t => run.by_type[t][p]),
+  })), layout({ barmode: "group", yaxis: { range: [0, 1.05], gridcolor: css("--line") } }), plotCfg);
+
+  const a = run.agent;
+  const card = document.getElementById("agent");
+  if (!a || !a.n) { card.innerHTML = '<p class="muted">No agent runs in this benchmark.</p>'; return; }
+  const types2 = Object.keys(a.routing);
+  card.innerHTML = `
+    <p>First strategy chosen: ${Object.entries(a.first_strategy).map(([k, v]) => `${pill(k)} ${v}`).join(" ")}</p>
+    <p>Average retrieve → grade attempts: <b>${fmt(a.avg_attempts, 2)}</b><br>
+       Context accepted by the grader: <b>${a.accepted}/${a.n}</b> (${Math.round(100 * a.accepted / a.n)}%);
+       the rest fell back to fusing all attempts.</p>
+    <div class="table-wrap"><table><thead><tr><th>question type</th>${PIPES.slice(0, 3).map(p => `<th>${esc(p)}</th>`).join("")}</tr></thead><tbody>
+      ${types2.map(t => `<tr><td>${esc(t)}</td>${PIPES.slice(0, 3).map(p => `<td>${a.routing[t][p]}</td>`).join("")}</tr>`).join("")}
+    </tbody></table></div>
+    <p class="small muted">Routing table: which strategy the router picked first, per question type.</p>`;
+}
+
+function renderQuestions() {
+  const sel = document.getElementById("q-select");
+  const onlyMiss = document.getElementById("only-miss").checked;
+  const qs = run.questions.filter(q => !onlyMiss || PIPES.some(p => q.results[p] && !q.results[p].hit));
+  const prev = sel.value;
+  sel.innerHTML = qs.map(q => `<option value="${esc(q.qid)}">${esc(q.qid)} · ${esc(q.type)} · ${esc(q.question)}</option>`).join("");
+  if (qs.some(q => q.qid === prev)) sel.value = prev;
+  renderQuestion();
+}
+
+function renderQuestion() {
+  const q = run.questions.find(q => q.qid === document.getElementById("q-select").value);
+  const head = document.getElementById("q-head"), res = document.getElementById("q-results");
+  if (!q) { head.innerHTML = '<p class="muted">No questions match.</p>'; res.innerHTML = ""; return; }
+  head.innerHTML = `<h3>${esc(q.question)}</h3>
+    <p class="small"><b>Type:</b> ${esc(q.type)} · <b>Reference answer:</b> ${esc(q.reference)}</p>
+    <p class="small muted">Gold chunk: <code>${q.gold.map(esc).join(", ")}</code></p>`;
+  res.innerHTML = PIPES.filter(p => q.results[p]).map(p => {
+    const r = q.results[p];
+    return `<div class="card">
+      <h3>${pill(p)} <span class="badge ${r.hit ? "ok" : "miss"}">${r.hit ? "gold retrieved" : "gold missed"}</span></h3>
+      <p class="small muted">${fmt(r.total_s, 1)} s · ${r.llm_calls} LLM calls<br>
+        faithfulness ${fmt(r.faithfulness, 2)} · correctness ${fmt(r.correctness, 2)} · relevance ${fmt(r.relevance, 2)}</p>
+      <div class="answer">${md(r.answer)}</div>
+      <details><summary>Retrieved chunks (${r.contexts.length})</summary>
+        ${r.contexts.map((c, i) => `<div class="ctx ${c.gold ? "gold" : ""}"><div class="id">[${i + 1}] ${c.gold ? "✅ " : ""}${esc(c.id)}</div>
+          <div class="muted">${esc(c.text)}${c.text.length >= 700 ? "…" : ""}</div></div>`).join("")}
+      </details>
+      ${r.trace.length ? `<details><summary>Agent trace (${r.trace.length} steps)</summary>
+        ${r.trace.map(t => `<div class="trace">${esc(JSON.stringify(t))}</div>`).join("")}</details>` : ""}
+    </div>`;
+  }).join("");
+}
+
+function renderJudges() {
+  const el = document.getElementById("judge-table");
+  if (DATA.runs.length < 2) { el.innerHTML = '<p class="muted">Only one judged run is published.</p>'; return; }
+  const cols = ["faithfulness", "answer_relevance", "correctness"];
+  let h = "<table><thead><tr><th>pipeline</th>";
+  for (const r of DATA.runs) for (const c of cols) h += `<th>${esc(c.replace("answer_", ""))}<br><span class="muted">${esc(r.meta.judge_model || r.name)}</span></th>`;
+  h += "</tr></thead><tbody>";
+  for (const p of PIPES) {
+    h += `<tr><td>${pill(p)}</td>`;
+    for (const r of DATA.runs) for (const c of cols) h += `<td>${fmt((r.summary[p] || {})[c])}</td>`;
+    h += "</tr>";
+  }
+  el.innerHTML = h + "</tbody></table>";
+}
+
+function renderAll() { renderOverview(); renderQuestions(); renderJudges(); }
+
+// ----- wiring
+document.getElementById("repo-link").href = DATA.repo;
+document.getElementById("repo-link-2").href = DATA.repo + "#readme";
+const runSel = document.getElementById("run-select");
+runSel.innerHTML = DATA.runs.map((r, i) => `<option value="${i}">${esc(r.name)} (judge: ${esc(r.meta.judge_model || "?")})</option>`).join("");
+runSel.addEventListener("change", () => { run = DATA.runs[+runSel.value]; renderAll(); });
+document.getElementById("q-select").addEventListener("change", renderQuestion);
+document.getElementById("only-miss").addEventListener("change", renderQuestions);
+document.querySelectorAll("nav.tabs button").forEach(b => b.addEventListener("click", () => {
+  document.querySelectorAll("nav.tabs button").forEach(x => x.classList.toggle("active", x === b));
+  document.querySelectorAll("section.view").forEach(v => v.classList.toggle("active", v.id === b.dataset.view));
+  window.dispatchEvent(new Event("resize"));  // let Plotly size charts that were hidden
+}));
+renderAll();
+</script>
+</body>
+</html>

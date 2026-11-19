@@ -16,3 +16,4 @@ results/fastapi/*
 .env
 .DS_Store
 .claude/
+site/

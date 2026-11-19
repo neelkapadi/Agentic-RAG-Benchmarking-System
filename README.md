@@ -8,6 +8,16 @@ The agentic pipeline is a **LangGraph** workflow that picks a retrieval strategy
 checks whether the retrieved context is good enough, and rewrites the query and retries when it is not.
 Every pipeline is scored on **faithfulness, relevance, correctness, latency and retrieval accuracy**.
 
+[![Interactive report on Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Interactive%20report-Hugging%20Face-yellow)](https://huggingface.co/spaces/neelkapadi/agentic-rag-benchmark)
+
+**[Open the interactive benchmark report →](https://huggingface.co/spaces/neelkapadi/agentic-rag-benchmark)**
+(charts, per-question comparison of all four pipelines, agent traces, judge comparison)
+
+![Dashboard demo: benchmark report, live answers with the agent's routing trace, and uploading a PDF](docs/demo.gif)
+
+*The local dashboard: benchmark report → asking a question (hybrid vs agentic, with the agent's routing
+decision) → uploading a research-paper PDF and asking about it.*
+
 ## Architecture
 
 ```mermaid
@@ -128,9 +138,20 @@ Every benchmark run writes `results/<corpus>/<run>/`:
 The dashboard's **📊 Report** tab shows the same content with charts, plus download buttons.
 The **🔍 Question explorer** tab compares all four pipelines side by side for a single question.
 
-## Deploy a free public demo (Hugging Face Spaces)
+## Publish results (free Static Space)
 
-`deploy/huggingface/` holds a Docker Space that runs Ollama (`qwen2.5:1.5b` on CPU) and the
+```powershell
+python -m scripts.export_static        # writes site/index.html + site/README.md
+```
+
+`site/index.html` is a self-contained interactive report built from `results/<corpus>/*/records.jsonl`.
+Upload both files to a Hugging Face **Static** Space, which is free; that's how the
+[live report](https://huggingface.co/spaces/neelkapadi/agentic-rag-benchmark) is hosted.
+
+## Deploy the full live demo (Hugging Face Docker Space, needs PRO)
+
+Hugging Face now requires a paid PRO plan for Docker Spaces. `deploy/huggingface/` is ready for it,
+and it has been tested locally with the same 2-CPU limit. It holds a Docker Space that runs Ollama (`qwen2.5:1.5b` on CPU) and the
 dashboard in **demo mode** (`DEMO_MODE=1`), which is safe to expose publicly:
 
 - **Limited uploads:** ≤ 3 files, ≤ 10 MB each, ≤ 100 PDF pages in total, ≤ 350k characters. Each
@@ -139,7 +160,7 @@ dashboard in **demo mode** (`DEMO_MODE=1`), which is safe to expose publicly:
 - **Rate limits:** 10 LLM questions per session, one request at a time. The *retrieval-only* compare
   mode (BM25 vs vector vs hybrid) is fast and unlimited.
 
-1. Create a free account at [huggingface.co](https://huggingface.co) → **New Space** → SDK **Docker** → *Blank*.
+1. With a PRO account on [huggingface.co](https://huggingface.co): **New Space** → SDK **Docker** → *Blank*.
 2. In the Space, upload `deploy/huggingface/Dockerfile` and `deploy/huggingface/README.md` to the
    Space's root folder (Files → Add file).
 3. The Space builds the image itself: it clones this repo, builds the index and downloads the model
@@ -153,7 +174,7 @@ docker build -f deploy/huggingface/Dockerfile -t agentic-rag-space .
 docker run --rm -p 7860:7860 agentic-rag-space    # then open http://localhost:7860
 ```
 
-Free Spaces have 2 vCPUs and no GPU, and go to sleep after about 48 hours without visitors. The
+CPU Spaces have 2 vCPUs and no GPU, and go to sleep after about 48 hours without visitors. The
 benchmark numbers come from a local GPU run, not from the Space.
 
 ## Project layout
@@ -202,8 +223,10 @@ Full report: [`results/fastapi/demo_12q/report.md`](results/fastapi/demo_12q/rep
 - **Limitation:** 12 questions is a small sample, so differences of one question (8.3 points)
   are within noise. The next step is the full 100-question run.
 
-A second copy of the same answers scored by `qwen2.5:3b` as the judge is in
-[`results/fastapi/compare_qwen_judge/`](results/fastapi/compare_qwen_judge/) for comparing the two judges.
+**Judge bias check.** The same answers were also scored with `qwen2.5:3b`, the generator itself, as the judge
+([`results/fastapi/compare_qwen_judge/`](results/fastapi/compare_qwen_judge/)). Qwen rated its own answers
+**1.000 faithful on 3 of 4 pipelines**, while `llama3.2:3b` found unsupported claims (0.948–0.963). This is
+self-preference bias, and it is why the benchmark uses a judge from a different model family.
 
 ## Design notes
 
