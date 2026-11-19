@@ -1,0 +1,8 @@
+{
+  "run": "compare_qwen_judge",
+  "corpus": "fastapi",
+  "domain": "the FastAPI web framework documentation",
+  "model": "qwen2.5:3b",
+  "judge_model": "qwen2.5:3b",
+  "embedding_model": "BAAI/bge-small-en-v1.5"
+}

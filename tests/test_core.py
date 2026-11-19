@@ -99,7 +99,7 @@ class FakeLLM:
         system = messages[0]["content"]
         if "route questions" in system:
             return {"strategy": "bm25", "reason": "has identifier"}, LLMResponse("", 10, 5, 0.01)
-        if "retrieved documentation passages" in system:
+        if "whether retrieved passages" in system:
             self.grades += 1
             return {"sufficient": self.grades >= 2, "reason": "missing details"}, LLMResponse("", 10, 5, 0.01)
         return {"query": "rewritten query"}, LLMResponse("", 10, 5, 0.01)

@@ -4,7 +4,15 @@ __pycache__/
 .pytest_cache/
 data/processed/
 data/raw/
+data/corpora/
+data/jobs/
 results/*
 !results/.gitkeep
+# Published benchmark runs (shown in the README and the hosted demo)
+!results/fastapi/
+results/fastapi/*
+!results/fastapi/demo_12q/
+!results/fastapi/compare_qwen_judge/
 .env
 .DS_Store
+.claude/

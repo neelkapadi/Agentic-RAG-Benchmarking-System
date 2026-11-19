@@ -21,7 +21,7 @@ from langgraph.graph import END, StateGraph
 
 from src.generation.llm import as_bool
 from src.generation.prompts import (GRADER_SYSTEM, GRADER_USER, REWRITER_SYSTEM, REWRITER_USER,
-                                    ROUTER_SYSTEM, ROUTER_USER)
+                                    ROUTER_SYSTEM, ROUTER_USER, fill)
 from src.retrievers.base import BaseRetriever, RetrievedChunk
 from src.retrievers.hybrid import rrf_fuse
 
@@ -59,13 +59,18 @@ def _usage(resp) -> dict:
 
 
 def build_agent(llm, retrievers: dict[str, BaseRetriever], top_k: int = 5,
-                max_attempts: int = 3, rrf_k: int = 60, snippet_chars: int = 700):
+                max_attempts: int = 3, rrf_k: int = 60, snippet_chars: int = 700,
+                domain: str = "the provided documents"):
+    router_system = fill(ROUTER_SYSTEM, domain=domain)
+    grader_system = fill(GRADER_SYSTEM, domain=domain)
+    rewriter_system = fill(REWRITER_SYSTEM, domain=domain)
+
     def route(state: AgentState) -> dict:
         tried = state.get("tried", [])
         tried_note = f"Already tried (with poor results): {', '.join(tried)}." if tried else ""
         data, resp = llm.chat_json([
-            {"role": "system", "content": ROUTER_SYSTEM},
-            {"role": "user", "content": ROUTER_USER.format(query=state["query"], tried=tried_note)},
+            {"role": "system", "content": router_system},
+            {"role": "user", "content": fill(ROUTER_USER, query=state["query"], tried=tried_note)},
         ])
         strategy = str(data.get("strategy", "")).strip().lower()
         reason = data.get("reason", "")
@@ -86,9 +91,9 @@ def build_agent(llm, retrievers: dict[str, BaseRetriever], top_k: int = 5,
     def grade(state: AgentState) -> dict:
         passages = "\n\n".join(f"[{i}] {d.text[:snippet_chars]}" for i, d in enumerate(state["docs"], 1))
         data, resp = llm.chat_json([
-            {"role": "system", "content": GRADER_SYSTEM},
-            {"role": "user", "content": GRADER_USER.format(question=state["question"],
-                                                           passages=passages or "(none)")},
+            {"role": "system", "content": grader_system},
+            {"role": "user", "content": fill(GRADER_USER, question=state["question"],
+                                             passages=passages or "(none)")},
         ])
         sufficient = bool(state["docs"]) and as_bool(data.get("sufficient", False))
         reason = data.get("reason", "")
@@ -99,9 +104,10 @@ def build_agent(llm, retrievers: dict[str, BaseRetriever], top_k: int = 5,
 
     def rewrite(state: AgentState) -> dict:
         data, resp = llm.chat_json([
-            {"role": "system", "content": REWRITER_SYSTEM},
-            {"role": "user", "content": REWRITER_USER.format(
-                question=state["question"], query=state["query"], reason=state.get("grade_reason", ""))},
+            {"role": "system", "content": rewriter_system},
+            {"role": "user", "content": fill(
+                REWRITER_USER, question=state["question"], query=state["query"],
+                reason=state.get("grade_reason", ""))},
         ])
         new_query = str(data.get("query") or "").strip() or state["question"]
         return {"query": new_query, **_usage(resp),
@@ -139,9 +145,10 @@ class AgenticRetriever(BaseRetriever):
     name = "agentic"
 
     def __init__(self, llm, retrievers: dict[str, BaseRetriever], top_k: int = 5,
-                 max_attempts: int = 3, rrf_k: int = 60):
+                 max_attempts: int = 3, rrf_k: int = 60, domain: str = "the provided documents"):
         self.top_k = top_k
-        self.graph = build_agent(llm, retrievers, top_k=top_k, max_attempts=max_attempts, rrf_k=rrf_k)
+        self.graph = build_agent(llm, retrievers, top_k=top_k, max_attempts=max_attempts,
+                                 rrf_k=rrf_k, domain=domain)
 
     def search_with_trace(self, query: str, k: int | None = None) -> tuple[list[RetrievedChunk], dict]:
         state = self.graph.invoke({"question": query, "query": query, "attempts": 0,

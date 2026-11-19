@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from functools import lru_cache
 from pathlib import Path
 
 import faiss
@@ -12,6 +13,12 @@ from src.ingest.store import ChunkStore
 from src.retrievers.base import BaseRetriever, RetrievedChunk
 
 
+@lru_cache(maxsize=2)
+def load_embedding_model(model_name: str) -> SentenceTransformer:
+    """One model instance per process, shared by every corpus (saves RAM with many corpora)."""
+    return SentenceTransformer(model_name)
+
+
 class VectorRetriever(BaseRetriever):
     name = "vector"
 
@@ -19,7 +26,7 @@ class VectorRetriever(BaseRetriever):
                  query_prefix: str = "", batch_size: int = 32):
         self.store = store
         self.query_prefix = query_prefix
-        self.model = SentenceTransformer(model_name)
+        self.model = load_embedding_model(model_name)
         embeddings = self._load_or_build(model_name, index_dir, batch_size)
         self.index = faiss.IndexFlatIP(embeddings.shape[1])  # cosine sim (vectors are normalized)
         self.index.add(embeddings)

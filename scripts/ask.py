@@ -4,6 +4,7 @@ Usage:
   python -m scripts.ask "How do I declare an optional query parameter?" --pipelines agentic
   python -m scripts.ask "What does response_model do?" --pipelines bm25 vector hybrid agentic
   python -m scripts.ask "..." --no-generate     # show retrieval only
+  python -m scripts.ask "What is the main contribution?" --corpus papers
 """
 from __future__ import annotations
 
@@ -11,6 +12,7 @@ import argparse
 import json
 
 from src.config import load_config
+from src.corpus import DEFAULT_CORPUS, apply_corpus
 from src.pipeline import build_pipelines
 
 
@@ -19,10 +21,11 @@ def main() -> None:
     ap.add_argument("question")
     ap.add_argument("--pipelines", nargs="+", default=["agentic"])
     ap.add_argument("--config", default=None)
+    ap.add_argument("--corpus", default=DEFAULT_CORPUS)
     ap.add_argument("--no-generate", action="store_true")
     args = ap.parse_args()
 
-    cfg = load_config(args.config)
+    cfg = apply_corpus(load_config(args.config), args.corpus)
     pipes = build_pipelines(cfg, args.pipelines, with_generator=not args.no_generate)
     for name, pipe in pipes.items():
         res = pipe.run(args.question, generate=not args.no_generate)

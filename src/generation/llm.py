@@ -19,12 +19,16 @@ class LLMResponse:
 
 class OllamaClient:
     def __init__(self, base_url: str = "http://localhost:11434", model: str = "qwen2.5:3b",
-                 temperature: float = 0.0, num_ctx: int = 8192, timeout_s: int = 300):
+                 temperature: float = 0.0, num_ctx: int = 8192, timeout_s: int = 180,
+                 max_tokens: int = 768, json_max_tokens: int = 512):
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.temperature = temperature
         self.num_ctx = num_ctx
         self.timeout_s = timeout_s
+        self.max_tokens = max_tokens
+        # Capping output matters: some models in JSON mode can emit whitespace forever.
+        self.json_max_tokens = json_max_tokens
 
     def chat(self, messages: list[dict], json_mode: bool = False,
              temperature: float | None = None) -> LLMResponse:
@@ -33,14 +37,13 @@ class OllamaClient:
             "messages": messages,
             "stream": False,
             "options": {"temperature": self.temperature if temperature is None else temperature,
-                        "num_ctx": self.num_ctx},
+                        "num_ctx": self.num_ctx,
+                        "num_predict": self.json_max_tokens if json_mode else self.max_tokens},
         }
         if json_mode:
             payload["format"] = "json"
         start = time.perf_counter()
-        r = requests.post(f"{self.base_url}/api/chat", json=payload, timeout=self.timeout_s)
-        r.raise_for_status()
-        data = r.json()
+        data = self._post_with_retry(payload)
         return LLMResponse(
             text=data["message"]["content"],
             prompt_tokens=data.get("prompt_eval_count", 0),
@@ -48,8 +51,27 @@ class OllamaClient:
             latency_s=time.perf_counter() - start,
         )
 
+    def _post_with_retry(self, payload: dict, retries: int = 3) -> dict:
+        """Ollama occasionally returns 500 (e.g. JSON-grammar hiccups) or drops a connection; retry."""
+        for attempt in range(retries):
+            try:
+                r = requests.post(f"{self.base_url}/api/chat", json=payload, timeout=self.timeout_s)
+                if r.status_code < 500:
+                    r.raise_for_status()
+                    return r.json()
+                err: Exception = requests.HTTPError(f"{r.status_code} from Ollama: {r.text[:200]}", response=r)
+            except (requests.ConnectionError, requests.Timeout) as e:
+                err = e
+            if attempt < retries - 1:
+                time.sleep(2 * (attempt + 1))
+        raise err
+
     def chat_json(self, messages: list[dict]) -> tuple[dict, LLMResponse]:
-        resp = self.chat(messages, json_mode=True)
+        try:
+            resp = self.chat(messages, json_mode=True)
+        except requests.HTTPError:
+            # Fall back to free-form output; parse_json extracts the first {...} block.
+            resp = self.chat(messages, json_mode=False)
         return parse_json(resp.text), resp
 
     def check(self) -> None:

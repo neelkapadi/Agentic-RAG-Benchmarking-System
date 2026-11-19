@@ -27,9 +27,9 @@ class Document:
     text: str
 
 
-def _resolve_include(path_str: str, src_root: Path) -> Path | None:
+def _resolve_include(path_str: str, src_root: Path | None) -> Path | None:
     idx = path_str.find("docs_src/")
-    if idx == -1:
+    if idx == -1 or src_root is None:
         return None
     p = src_root / path_str[idx:]
     if p.exists():
@@ -43,7 +43,7 @@ def _resolve_include(path_str: str, src_root: Path) -> Path | None:
     return variants[0] if variants else None
 
 
-def _inline_includes(text: str, src_root: Path) -> str:
+def _inline_includes(text: str, src_root: Path | None) -> str:
     def repl(m: re.Match) -> str:
         p = _resolve_include(m.group("path"), src_root)
         if p is None:
@@ -63,7 +63,7 @@ def _clean_prose(text: str) -> str:
     return HTML_TAG_RE.sub("", text)
 
 
-def clean_markdown(text: str, src_root: Path) -> str:
+def clean_markdown(text: str, src_root: Path | None = None) -> str:
     text = _inline_includes(text, src_root)
     # Only clean prose; leave code blocks untouched (they may contain HTML or braces).
     parts = CODE_FENCE_SPLIT_RE.split(text)

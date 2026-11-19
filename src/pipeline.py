@@ -56,11 +56,17 @@ class RAGPipeline:
         return PipelineResult(self.name, question, answer, docs, timings, tokens, agent_info)
 
 
+def domain_of(cfg: dict) -> str:
+    """Corpus description used in prompts (set by src.corpus.apply_corpus)."""
+    return cfg.get("domain") or cfg["data"].get("domain", "the provided documents")
+
+
 def make_llm(cfg: dict, judge: bool = False) -> OllamaClient:
     c = cfg["llm"]
     return OllamaClient(base_url=c["base_url"], model=c["judge_model"] if judge else c["model"],
                         temperature=c.get("temperature", 0.0), num_ctx=c.get("num_ctx", 8192),
-                        timeout_s=c.get("timeout_s", 300))
+                        timeout_s=c.get("timeout_s", 180), max_tokens=c.get("max_tokens", 768),
+                        json_max_tokens=c.get("json_max_tokens", 512))
 
 
 def build_retrievers(cfg: dict, names: list[str], llm: OllamaClient | None = None) -> dict[str, BaseRetriever]:
@@ -83,7 +89,7 @@ def build_retrievers(cfg: dict, names: list[str], llm: OllamaClient | None = Non
         out["agentic"] = AgenticRetriever(
             llm or make_llm(cfg), {k: out[k] for k in ("bm25", "vector", "hybrid")},
             top_k=r_cfg["top_k"], max_attempts=cfg["agent"]["max_attempts"],
-            rrf_k=r_cfg.get("hybrid", {}).get("rrf_k", 60))
+            rrf_k=r_cfg.get("hybrid", {}).get("rrf_k", 60), domain=domain_of(cfg))
     return {n: out[n] for n in names}
 
 
@@ -95,5 +101,5 @@ def build_pipelines(cfg: dict, names: list[str] | None = None, llm: OllamaClient
         raise ValueError(f"Unknown pipelines: {unknown}. Choose from {ALL_PIPELINES}")
     llm = llm or make_llm(cfg)
     retrievers = build_retrievers(cfg, names, llm)
-    generator = AnswerGenerator(llm) if with_generator else None
+    generator = AnswerGenerator(llm, domain_of(cfg)) if with_generator else None
     return {n: RAGPipeline(n, retrievers[n], generator, cfg["retrieval"]["top_k"]) for n in names}

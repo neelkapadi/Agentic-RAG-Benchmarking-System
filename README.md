@@ -92,12 +92,78 @@ uvicorn src.api.app:app --reload                        # POST /query {"question
 pytest -q
 ```
 
+## Bring your own documents
+
+FastAPI is the built-in **benchmark** corpus. You can add any other document set, such as research
+papers, internal docs or manuals, as a separate **corpus** with its own index, test questions and results.
+
+Supported formats: **PDF, DOCX, Markdown, TXT and HTML**. Section headings are recovered from PDF
+font size and bold text, DOCX heading styles and HTML `<h1>`–`<h4>` tags. For PDFs, repeated page
+headers and footers, page numbers and the references section are removed.
+
+**From the dashboard** (📁 Documents tab): upload files → **Build corpus** → **Generate questions**
+→ **Run benchmark**. The report appears in the 📊 Report tab.
+
+**From the command line:**
+
+```powershell
+python -m scripts.build_index --corpus papers --input C:\path\to\pdfs --domain "LLM research papers"
+python -m scripts.ask "What is the main contribution?" --corpus papers --pipelines hybrid agentic
+python -m scripts.generate_qa --corpus papers --n 30
+python -m src.evaluation.runner --corpus papers
+```
+
+Each corpus is stored in `data/corpora/<name>/` and its results in `results/<name>/<run>/`.
+
+## The report
+
+Every benchmark run writes `results/<corpus>/<run>/`:
+
+| File | Contents |
+|---|---|
+| `report.md` | key findings (best pipeline per metric, agent vs best baseline, latency cost), quality and latency tables, Hit@k by question type, agent routing statistics and missed questions |
+| `summary.csv` / `summary_by_type.csv` | per-pipeline averages and p50/p95 latency |
+| `records.jsonl` | one row per question × pipeline: answer, retrieved chunks, scores, agent trace |
+
+The dashboard's **📊 Report** tab shows the same content with charts, plus download buttons.
+The **🔍 Question explorer** tab compares all four pipelines side by side for a single question.
+
+## Deploy a free public demo (Hugging Face Spaces)
+
+`deploy/huggingface/` holds a Docker Space that runs Ollama (`qwen2.5:1.5b` on CPU) and the
+dashboard in **demo mode** (`DEMO_MODE=1`), which is safe to expose publicly:
+
+- **Limited uploads:** ≤ 3 files, ≤ 10 MB each, ≤ 100 PDF pages in total, ≤ 350k characters. Each
+  visitor's corpus is visible only in their own browser session and is deleted after 60 minutes.
+- **No background jobs:** question generation and the LLM-judged benchmark need a GPU and stay local.
+- **Rate limits:** 10 LLM questions per session, one request at a time. The *retrieval-only* compare
+  mode (BM25 vs vector vs hybrid) is fast and unlimited.
+
+1. Create a free account at [huggingface.co](https://huggingface.co) → **New Space** → SDK **Docker** → *Blank*.
+2. In the Space, upload `deploy/huggingface/Dockerfile` and `deploy/huggingface/README.md` to the
+   Space's root folder (Files → Add file).
+3. The Space builds the image itself: it clones this repo, builds the index and downloads the model
+   (about 10–15 minutes the first time). The published benchmark runs in `results/fastapi/` appear in
+   the Report tab.
+
+To test the same image locally:
+
+```powershell
+docker build -f deploy/huggingface/Dockerfile -t agentic-rag-space .
+docker run --rm -p 7860:7860 agentic-rag-space    # then open http://localhost:7860
+```
+
+Free Spaces have 2 vCPUs and no GPU, and go to sleep after about 48 hours without visitors. The
+benchmark numbers come from a local GPU run, not from the Space.
+
 ## Project layout
 
 ```
 configs/default.yaml        all settings (models, chunking, top-k, agent attempts)
 scripts/                    download_docs, build_index, generate_qa, ask
-src/ingest/                 markdown loader (inlines code examples), chunker, chunk store
+src/ingest/                 FastAPI markdown loader, multi-format loaders (PDF/DOCX/HTML/TXT), chunker, store
+src/corpus.py               corpora: per-corpus paths, build from uploaded files
+src/evaluation/report.py    Markdown benchmark report
 src/retrievers/             bm25.py, vector.py, hybrid.py (RRF)
 src/agent/graph.py          LangGraph agentic retriever
 src/generation/             Ollama client, prompts, shared answer generator
@@ -110,14 +176,34 @@ tests/                      unit tests (fake LLM, no network)
 
 ## Results
 
-_Run the benchmark and paste `results/<run>/summary.csv` here._
+**Pilot run** on the FastAPI docs: 12 generated questions (6 keyword, 6 conceptual), top-k = 5.
+The generator is `qwen2.5:3b` and the judge is `llama3.2:3b`, a different model family to avoid
+self-preference bias. Everything ran locally on a GTX 1650 (4 GB).
+Full report: [`results/fastapi/demo_12q/report.md`](results/fastapi/demo_12q/report.md).
 
-| Pipeline | Hit@5 | MRR | Faithfulness | Relevance | Correctness | p50 latency |
-|---|---|---|---|---|---|---|
-| BM25 | | | | | | |
-| Vector | | | | | | |
-| Hybrid | | | | | | |
-| Agentic | | | | | | |
+| Pipeline | Hit@5 | MRR | nDCG@5 | Faithfulness | Relevance | Correctness | p50 latency | LLM calls |
+|---|---|---|---|---|---|---|---|---|
+| BM25 | 0.917 | 0.854 | 0.869 | **0.963** | 0.917 | 0.854 | 9.7 s | 1 |
+| Vector | 0.833 | 0.750 | 0.772 | 0.955 | 0.958 | 0.875 | 8.6 s | 1 |
+| Hybrid (RRF) | **1.000** | **0.892** | **0.918** | 0.948 | 0.917 | 0.854 | **7.7 s** | 1 |
+| Agentic (LangGraph) | 0.917 | 0.736 | 0.783 | 0.959 | **0.979** | **0.938** | 34.2 s | 7.5 |
+
+**What the pilot shows**
+
+- **Hybrid retrieval is the strongest retriever:** it found the gold chunk for every question and
+  had the best ranking (MRR 0.892). BM25 missed paraphrased questions and vector search missed
+  exact-identifier ones; fusing both fixed both.
+- **The agent gives the best answers** (correctness 0.938, +6.2 points over the best baseline, and
+  the highest relevance), but it costs **4.5× the latency** and 7.5 LLM calls per question.
+- **The router adapts to question type:** it chose vector or hybrid for 6 of 6 conceptual questions and
+  BM25 or hybrid for 4 of 6 keyword questions.
+- **The grader is too strict:** it accepted only 25% of first retrievals, so most questions went
+  through 2–3 retrieve→rewrite cycles. Tuning the grader is the main lever for cutting latency.
+- **Limitation:** 12 questions is a small sample, so differences of one question (8.3 points)
+  are within noise. The next step is the full 100-question run.
+
+A second copy of the same answers scored by `qwen2.5:3b` as the judge is in
+[`results/fastapi/compare_qwen_judge/`](results/fastapi/compare_qwen_judge/) for comparing the two judges.
 
 ## Design notes
 

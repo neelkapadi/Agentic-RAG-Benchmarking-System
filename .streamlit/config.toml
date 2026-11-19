@@ -1,0 +1,8 @@
+# Only accept connections from this machine. The dashboard can upload files, start
+# benchmark jobs and use the GPU, so it should not be reachable from the network.
+[server]
+address = "localhost"
+headless = true
+
+[browser]
+gatherUsageStats = false

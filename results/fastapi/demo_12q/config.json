@@ -1,0 +1,81 @@
+{
+  "config": {
+    "data": {
+      "domain": "the FastAPI web framework documentation",
+      "docs_dir": "data/raw/fastapi_docs",
+      "src_root": "data/raw",
+      "chunks_path": "data/processed/chunks.jsonl",
+      "exclude": [
+        "release-notes.md",
+        "fastapi-people.md",
+        "external-links.md",
+        "contributing.md",
+        "management.md",
+        "management-tasks.md",
+        "translations.md",
+        "newsletter.md",
+        "agent-banner.md",
+        "translation-banner.md",
+        "_llm-test.md",
+        "help-fastapi.md",
+        "reference/"
+      ]
+    },
+    "chunking": {
+      "max_chars": 1800,
+      "overlap_chars": 300,
+      "min_chars": 120
+    },
+    "embeddings": {
+      "model": "BAAI/bge-small-en-v1.5",
+      "query_prefix": "Represent this sentence for searching relevant passages: ",
+      "index_dir": "data/processed/vector_index",
+      "batch_size": 32
+    },
+    "llm": {
+      "base_url": "http://localhost:11434",
+      "model": "qwen2.5:3b",
+      "judge_model": "qwen2.5:3b",
+      "temperature": 0.0,
+      "num_ctx": 8192,
+      "timeout_s": 300
+    },
+    "retrieval": {
+      "top_k": 5,
+      "bm25": {
+        "k1": 1.5,
+        "b": 0.75
+      },
+      "hybrid": {
+        "rrf_k": 60,
+        "candidates": 20
+      }
+    },
+    "agent": {
+      "max_attempts": 3
+    },
+    "eval": {
+      "qa_path": "data/eval/qa_gold.jsonl",
+      "results_dir": "results\\fastapi",
+      "pipelines": [
+        "bm25",
+        "vector",
+        "hybrid",
+        "agentic"
+      ],
+      "judge": true
+    },
+    "corpus": "fastapi",
+    "domain": "the FastAPI web framework documentation"
+  },
+  "args": {
+    "config": null,
+    "corpus": "fastapi",
+    "pipelines": null,
+    "limit": null,
+    "run_name": "demo_12q",
+    "resume": true,
+    "no_judge": false,
+    "retrieval_only": false
+  }
+}

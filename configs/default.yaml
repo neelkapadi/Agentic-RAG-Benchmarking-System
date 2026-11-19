@@ -1,7 +1,10 @@
 # Agentic RAG Benchmarking System - default configuration.
 # Relative paths are resolved from the project root.
 
+# Built-in benchmark corpus = FastAPI docs. Your own documents become extra corpora
+# under data/corpora/<name>/ (see scripts/build_index.py --corpus/--input).
 data:
+  domain: the FastAPI web framework documentation
   docs_dir: data/raw/fastapi_docs        # FastAPI English docs (markdown)
   src_root: data/raw                     # folder that contains docs_src/ (code examples)
   chunks_path: data/processed/chunks.jsonl
@@ -35,10 +38,12 @@ embeddings:
 llm:
   base_url: http://localhost:11434       # Ollama
   model: qwen2.5:3b                      # fits a 4 GB GPU; try qwen2.5:7b / llama3.1:8b on bigger GPUs
-  judge_model: qwen2.5:3b                # ideally a larger model than the generator
+  judge_model: llama3.2:3b               # different model family than the generator -> less self-preference bias
   temperature: 0.0
   num_ctx: 8192
-  timeout_s: 300
+  timeout_s: 180
+  max_tokens: 768          # cap for answers
+  json_max_tokens: 512     # cap for router/grader/judge JSON (stops runaway whitespace generation)
 
 retrieval:
   top_k: 5

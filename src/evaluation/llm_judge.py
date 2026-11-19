@@ -6,7 +6,7 @@ import re
 from src.generation.generator import format_context
 from src.generation.llm import OllamaClient, as_bool
 from src.generation.prompts import (FAITHFULNESS_SYSTEM, FAITHFULNESS_USER, RELEVANCE_SYSTEM,
-                                    RELEVANCE_USER)
+                                    RELEVANCE_USER, fill)
 from src.retrievers.base import RetrievedChunk
 
 ABSTAIN_RE = re.compile(r"i don'?t know|does not contain|doesn'?t contain|not (?:mentioned|provided)|no information", re.I)
@@ -25,8 +25,9 @@ def _score_1_5(value) -> float | None:
 
 
 class Judge:
-    def __init__(self, llm: OllamaClient):
+    def __init__(self, llm: OllamaClient, domain: str = "the provided documents"):
         self.llm = llm
+        self.domain = domain
 
     def faithfulness(self, answer: str, contexts: list[RetrievedChunk]) -> dict:
         """Share of the answer's claims that are supported by the retrieved context."""
@@ -34,7 +35,7 @@ class Judge:
             return {"faithfulness": None, "claims": []}
         data, _ = self.llm.chat_json([
             {"role": "system", "content": FAITHFULNESS_SYSTEM},
-            {"role": "user", "content": FAITHFULNESS_USER.format(context=format_context(contexts), answer=answer)},
+            {"role": "user", "content": fill(FAITHFULNESS_USER, context=format_context(contexts), answer=answer)},
         ])
         claims = [c for c in data.get("claims", []) if isinstance(c, dict) and c.get("claim")]
         if not claims:
@@ -44,8 +45,8 @@ class Judge:
 
     def relevance(self, question: str, answer: str, reference: str) -> dict:
         data, _ = self.llm.chat_json([
-            {"role": "system", "content": RELEVANCE_SYSTEM},
-            {"role": "user", "content": RELEVANCE_USER.format(question=question, reference=reference, answer=answer)},
+            {"role": "system", "content": fill(RELEVANCE_SYSTEM, domain=self.domain)},
+            {"role": "user", "content": fill(RELEVANCE_USER, question=question, reference=reference, answer=answer)},
         ])
         return {"answer_relevance": _score_1_5(data.get("relevance")),
                 "correctness": _score_1_5(data.get("correctness")),
